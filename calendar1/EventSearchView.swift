@@ -7,6 +7,13 @@
 
 import SwiftUI
 
+enum SearchMode: String, CaseIterable {
+    case prefix = "前方一致"
+    case suffix = "後方一致"
+    case exact = "完全一致"
+    case contains = "部分一致"
+}
+
 struct EventSearchView: View {
     @Binding var events: [String: [Event]]
     @Binding var selectedThemeColor: Color
@@ -16,6 +23,7 @@ struct EventSearchView: View {
     @State private var searchText = ""
     @State private var searchResults: [EventGroup] = []
     @State private var isSearching = false
+    @State private var selectedSearchMode: SearchMode = .contains
     
     private var calendar: Calendar { Calendar.current }
     
@@ -43,6 +51,20 @@ struct EventSearchView: View {
                     }
                 }
                 .padding()
+                
+                // 検索モード選択
+                Picker("検索モード", selection: $selectedSearchMode) {
+                    ForEach(SearchMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding(.horizontal)
+                .onChange(of: selectedSearchMode) { _ in
+                    if !searchText.isEmpty {
+                        performSearch(query: searchText)
+                    }
+                }
                 
                 // 検索結果
                 if isSearching {
@@ -132,7 +154,25 @@ struct EventSearchView: View {
             // 全ての予定を検索
             for (_, eventList) in events {
                 for event in eventList {
-                    if event.title.lowercased().contains(lowercaseQuery) {
+                    let eventTitle = event.title.lowercased()
+                    var matches = false
+                    
+                    switch selectedSearchMode {
+                    case .prefix:
+                        // 前方一致
+                        matches = eventTitle.hasPrefix(lowercaseQuery)
+                    case .suffix:
+                        // 後方一致
+                        matches = eventTitle.hasSuffix(lowercaseQuery)
+                    case .exact:
+                        // 完全一致
+                        matches = eventTitle == lowercaseQuery
+                    case .contains:
+                        // 部分一致
+                        matches = eventTitle.contains(lowercaseQuery)
+                    }
+                    
+                    if matches {
                         allEvents.append(event)
                     }
                 }
