@@ -31,6 +31,8 @@ struct ContentView: View {
     @State private var editEventEndTime = Date()
     @State private var showEditSheet = false
     @State private var selectedThemeColor = Color.blue
+    @State private var selectedThemeColorIndex = 0
+    @State private var hasLoadedInitialData = false
     @State private var showThemeSettings = false
     @State private var showSearchView = false
     
@@ -55,7 +57,9 @@ struct ContentView: View {
         Color(red: 0.4, green: 0.8, blue: 0.8)  // ライトシアン
     ]
     
+    private let themeColorKey = "selectedThemeColorIndex"
     private var calendar: Calendar { Calendar.current }
+    private let icalManager = ICalManager()
     private var daysInMonth: [Date] {
         guard let monthInterval = calendar.dateInterval(of: .month, for: currentDate) else { return [] }
         var dates: [Date] = []
@@ -322,6 +326,13 @@ struct ContentView: View {
                 Spacer()
             }
         }
+        .onAppear {
+            if !hasLoadedInitialData {
+                events = icalManager.loadEvents()
+                loadThemeColor()
+                hasLoadedInitialData = true
+            }
+        }
         .sheet(isPresented: $showAddEvent) {
             VStack {
                 Text("予定を追加")
@@ -355,12 +366,16 @@ struct ContentView: View {
                     Button("追加") {
                         if let selectedDate = selectedDate, !newEventText.isEmpty {
                             let key = dateKey(selectedDate)
-                            let event = Event(title: newEventText, startTime: newEventStartTime, endTime: newEventEndTime)
+                            let start = combine(date: selectedDate, time: newEventStartTime)
+                            let end = combine(date: selectedDate, time: newEventEndTime)
+                            let event = Event(title: newEventText, startTime: start, endTime: end)
                             if events[key] != nil {
                                 events[key]?.append(event)
+                                events[key]?.sort { $0.startTime < $1.startTime }
                             } else {
                                 events[key] = [event]
                             }
+                            saveEventsToICal()
                         }
                         showAddEvent = false
                         newEventText = ""
@@ -433,6 +448,7 @@ struct ContentView: View {
                             var list = events[info.dateKey] ?? []
                             list[info.index] = Event(title: editEventText, startTime: editEventStartTime, endTime: editEventEndTime)
                             events[info.dateKey] = list
+                            saveEventsToICal()
                         }
                         showEditSheet = false
                         editEventText = ""
@@ -459,16 +475,18 @@ struct ContentView: View {
                     .padding()
                 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 20) {
-                    ForEach(themeColors, id: \ .self) { color in
+                    ForEach(Array(themeColors.enumerated()), id: \.offset) { index, color in
                         Circle()
                             .fill(color)
                             .frame(width: 50, height: 50)
                             .overlay(
                                 Circle()
-                                    .stroke(selectedThemeColor == color ? Color.primary : Color.clear, lineWidth: 3)
+                                    .stroke(selectedThemeColorIndex == index ? Color.primary : Color.clear, lineWidth: 3)
                             )
                             .onTapGesture {
+                                selectedThemeColorIndex = index
                                 selectedThemeColor = color
+                                saveThemeColor(index: index)
                             }
                     }
                 }
@@ -490,6 +508,7 @@ struct ContentView: View {
                     if let info = eventToDelete, var list = events[info.dateKey] {
                         list.remove(at: info.index)
                         events[info.dateKey] = list.isEmpty ? nil : list
+                        saveEventsToICal()
                     }
                     eventToDelete = nil
                 },
@@ -519,6 +538,46 @@ struct ContentView: View {
         formatter.locale = Locale(identifier: "ja_JP")
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
+    }
+    
+    private func combine(date: Date, time: Date) -> Date {
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone.current
+        
+        let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second], from: time)
+        
+        var combinedComponents = DateComponents()
+        combinedComponents.year = dateComponents.year
+        combinedComponents.month = dateComponents.month
+        combinedComponents.day = dateComponents.day
+        combinedComponents.hour = timeComponents.hour
+        combinedComponents.minute = timeComponents.minute
+        combinedComponents.second = timeComponents.second ?? 0
+        
+        return calendar.date(from: combinedComponents) ?? date
+    }
+    
+    private func saveEventsToICal() {
+        icalManager.saveEvents(events)
+    }
+    
+    private func loadThemeColor() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: themeColorKey) != nil {
+            let storedIndex = defaults.integer(forKey: themeColorKey)
+            if themeColors.indices.contains(storedIndex) {
+                selectedThemeColorIndex = storedIndex
+                selectedThemeColor = themeColors[storedIndex]
+                return
+            }
+        }
+        selectedThemeColorIndex = 0
+        selectedThemeColor = themeColors.first ?? .blue
+    }
+    
+    private func saveThemeColor(index: Int) {
+        UserDefaults.standard.set(index, forKey: themeColorKey)
     }
 }
 
