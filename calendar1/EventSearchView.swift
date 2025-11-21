@@ -23,6 +23,7 @@ struct EventSearchView: View {
     @State private var searchText = ""
     @State private var searchResults: [EventGroup] = []
     @State private var isSearching = false
+    @State private var showSimilarWordsSettings = false
     @State private var selectedSearchMode: SearchMode = .contains
     
     private var calendar: Calendar { Calendar.current }
@@ -124,15 +125,25 @@ struct EventSearchView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: SimilarWordsSettingsView(
-                        similarWordsGroups: $similarWordsManager.similarWordsGroups,
-                        selectedThemeColor: $selectedThemeColor
-                    )) {
+                    Button(action: {
+                        showSimilarWordsSettings = true
+                    }) {
                         Image(systemName: "gearshape.fill")
                             .foregroundColor(selectedThemeColor)
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showSimilarWordsSettings) {
+            SimilarWordsSettingsView(
+                similarWordsGroups: $similarWordsManager.similarWordsGroups,
+                selectedThemeColor: $selectedThemeColor,
+                onSelectWord: { word in
+                    searchText = word
+                    performSearch(query: word)
+                    showSimilarWordsSettings = false
+                }
+            )
         }
     }
     
@@ -148,6 +159,7 @@ struct EventSearchView: View {
         // 検索を少し遅延させて、ユーザーが入力中に頻繁に検索が実行されるのを防ぐ
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let lowercaseQuery = query.lowercased()
+            let searchKeywords = similarWordsManager.findSimilarWords(for: lowercaseQuery).map { $0.lowercased() }
             
             var allEvents: [Event] = []
             
@@ -155,24 +167,8 @@ struct EventSearchView: View {
             for (_, eventList) in events {
                 for event in eventList {
                     let eventTitle = event.title.lowercased()
-                    var matches = false
                     
-                    switch selectedSearchMode {
-                    case .prefix:
-                        // 前方一致
-                        matches = eventTitle.hasPrefix(lowercaseQuery)
-                    case .suffix:
-                        // 後方一致
-                        matches = eventTitle.hasSuffix(lowercaseQuery)
-                    case .exact:
-                        // 完全一致
-                        matches = eventTitle == lowercaseQuery
-                    case .contains:
-                        // 部分一致
-                        matches = eventTitle.contains(lowercaseQuery)
-                    }
-                    
-                    if matches {
+                    if matchesEventTitle(eventTitle, keywords: searchKeywords) {
                         allEvents.append(event)
                     }
                 }
@@ -182,6 +178,27 @@ struct EventSearchView: View {
             searchResults = groupSimilarEvents(allEvents, query: lowercaseQuery)
             isSearching = false
         }
+    }
+    
+    private func matchesEventTitle(_ title: String, keywords: [String]) -> Bool {
+        for keyword in keywords {
+            let isMatch: Bool
+            switch selectedSearchMode {
+            case .prefix:
+                isMatch = title.hasPrefix(keyword)
+            case .suffix:
+                isMatch = title.hasSuffix(keyword)
+            case .exact:
+                isMatch = title == keyword
+            case .contains:
+                isMatch = title.contains(keyword)
+            }
+            
+            if isMatch {
+                return true
+            }
+        }
+        return false
     }
     
     private func groupSimilarEvents(_ events: [Event], query: String) -> [EventGroup] {

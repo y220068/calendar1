@@ -10,6 +10,7 @@ import SwiftUI
 struct SimilarWordsSettingsView: View {
     @Binding var similarWordsGroups: [SimilarWordsGroup]
     @Binding var selectedThemeColor: Color
+    var onSelectWord: ((String) -> Void)? = nil
     @Environment(\.presentationMode) var presentationMode
     
     @State private var newGroupName = ""
@@ -67,6 +68,12 @@ struct SimilarWordsSettingsView: View {
                                 },
                                 onDeleteGroup: {
                                     similarWordsGroups.remove(at: index)
+                                },
+                                onTapWord: { word in
+                                    handleWordSelection(word)
+                                },
+                                onTapGroup: { group in
+                                    handleGroupSelection(group)
                                 }
                             )
                         }
@@ -139,6 +146,8 @@ struct SimilarWordsGroupRow: View {
     let selectedThemeColor: Color
     let onEditGroup: (SimilarWordsGroup) -> Void
     let onDeleteGroup: () -> Void
+    let onTapWord: (String) -> Void
+    let onTapGroup: (SimilarWordsGroup) -> Void
     
     @State private var isExpanded = false
     @State private var newWord = ""
@@ -202,6 +211,10 @@ struct SimilarWordsGroupRow: View {
                     }
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onTapGroup(group)
+            }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
@@ -218,8 +231,7 @@ struct SimilarWordsGroupRow: View {
                             Text(group.words[index])
                                 .font(.body)
                                 .foregroundColor(.primary)
-                            
-                            Spacer()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             
                             Button(action: {
                                 group.words.remove(at: index)
@@ -235,6 +247,10 @@ struct SimilarWordsGroupRow: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(selectedThemeColor.opacity(0.05))
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onTapWord(group.words[index])
+                        }
                     }
                 }
                 .padding(.top, 8)
@@ -510,6 +526,17 @@ struct AddWordToGroupView: View {
                 }
             }
         }
+    }
+}
+
+private extension SimilarWordsSettingsView {
+    func handleWordSelection(_ word: String) {
+        onSelectWord?(word)
+        presentationMode.wrappedValue.dismiss()
+    }
+    
+    func handleGroupSelection(_ group: SimilarWordsGroup) {
+        handleWordSelection(group.name)
     }
 }
 
