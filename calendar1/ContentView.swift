@@ -91,12 +91,35 @@ struct ContentView: View {
             
             VStack {
                 // ヘッダー（月表示とボタン群）
-                HStack {
+                HStack(spacing: 12) {
+                    Button(action: { changeMonth(by: -1) }) {
+                        Image(systemName: "chevron.left")
+                            .foregroundColor(selectedThemeColor)
+                            .font(.title2)
+                            .padding(10)
+                            .background(
+                                Circle()
+                                    .fill(selectedThemeColor.opacity(0.1))
+                            )
+                    }
+                    
                     Text(monthYearString(currentDate))
                         .font(.title)
                         .fontWeight(.bold)
                         .foregroundColor(selectedThemeColor)
                         .shadow(color: selectedThemeColor.opacity(0.3), radius: 2, x: 0, y: 1)
+                    
+                    Button(action: { changeMonth(by: 1) }) {
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(selectedThemeColor)
+                            .font(.title2)
+                            .padding(10)
+                            .background(
+                                Circle()
+                                    .fill(selectedThemeColor.opacity(0.1))
+                            )
+                    }
+                    
                     Spacer()
                     
                     HStack(spacing: 12) {
@@ -560,6 +583,14 @@ struct ContentView: View {
     
     private func saveEventsToICal() {
         icalManager.saveEvents(events)
+    }
+    
+    private func changeMonth(by value: Int) {
+        if let nextDate = calendar.date(byAdding: .month, value: value, to: currentDate) {
+            currentDate = nextDate
+            // 月を変えたときは日付選択をリセット
+            selectedDate = nil
+        }
     }
     
     private func loadThemeColor() {
