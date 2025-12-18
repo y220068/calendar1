@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+// 類似語グループの編集、追加、削除を行う UI を提供するビュー
 struct SimilarWordsSettingsView: View {
     @Binding var similarWordsGroups: [SimilarWordsGroup]
     @Binding var selectedThemeColor: Color
@@ -20,12 +21,18 @@ struct SimilarWordsSettingsView: View {
     @State private var editingWord = ""
     @State private var showEditWord = false
     
+    // 保存ヘルパー: シングルトンに反映して永続化
+    private func saveSimilarWords() {
+        SimilarWordsManager.shared.similarWordsGroups = similarWordsGroups
+        SimilarWordsManager.shared.saveSimilarWords()
+    }
+    
     var body: some View {
         NavigationView {
             VStack {
                 // 説明テキスト
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("類似単語の設定")
+                    Text("類似語の設定")
                         .font(.headline)
                         .foregroundColor(selectedThemeColor)
                     
@@ -40,14 +47,14 @@ struct SimilarWordsSettingsView: View {
                 )
                 .padding(.horizontal)
                 
-                // 類似単語グループ一覧
+                // 類似語グループ一覧
                 if similarWordsGroups.isEmpty {
                     VStack(spacing: 20) {
                         Image(systemName: "text.badge.plus")
                             .font(.system(size: 50))
                             .foregroundColor(selectedThemeColor.opacity(0.5))
                         
-                        Text("類似単語グループがありません")
+                        Text("類似語グループがありません")
                             .font(.headline)
                             .foregroundColor(.gray)
                         
@@ -68,14 +75,22 @@ struct SimilarWordsSettingsView: View {
                                 },
                                 onDeleteGroup: {
                                     similarWordsGroups.remove(at: index)
+                                    saveSimilarWords()
                                 },
                                 onTapWord: { word in
                                     handleWordSelection(word)
                                 },
-                                onTapGroup: { group in
-                                    handleGroupSelection(group)
+                                onGroupChanged: {
+                                    saveSimilarWords()
                                 }
                             )
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                // List の行全体をタップしても何もしない
+                            }
                         }
                     }
                     .listStyle(PlainListStyle())
@@ -83,7 +98,7 @@ struct SimilarWordsSettingsView: View {
                 
                 Spacer()
             }
-            .navigationTitle("類似単語設定")
+            .navigationTitle("類似語設定")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
             .toolbar {
@@ -111,6 +126,7 @@ struct SimilarWordsSettingsView: View {
                         words: words
                     )
                     similarWordsGroups.append(newGroup)
+                    saveSimilarWords()
                 },
                 selectedThemeColor: selectedThemeColor
             )
@@ -121,6 +137,7 @@ struct SimilarWordsSettingsView: View {
                 onSave: { updatedGroup in
                     if let index = similarWordsGroups.firstIndex(where: { $0.id == updatedGroup.id }) {
                         similarWordsGroups[index] = updatedGroup
+                        saveSimilarWords()
                     }
                 },
                 selectedThemeColor: selectedThemeColor
@@ -129,6 +146,7 @@ struct SimilarWordsSettingsView: View {
     }
 }
 
+// 類似語グループのモデル
 struct SimilarWordsGroup: Identifiable, Codable {
     let id: String
     var name: String
@@ -141,13 +159,14 @@ struct SimilarWordsGroup: Identifiable, Codable {
     }
 }
 
+// グループの行を表すビュー。グループ名、単語の一覧、編集/削除ボタンを含む
 struct SimilarWordsGroupRow: View {
     @Binding var group: SimilarWordsGroup
     let selectedThemeColor: Color
     let onEditGroup: (SimilarWordsGroup) -> Void
     let onDeleteGroup: () -> Void
     let onTapWord: (String) -> Void
-    let onTapGroup: (SimilarWordsGroup) -> Void
+    let onGroupChanged: () -> Void
     
     @State private var isExpanded = false
     @State private var newWord = ""
@@ -155,91 +174,111 @@ struct SimilarWordsGroupRow: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // グループヘッダー
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(group.name)
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .foregroundColor(selectedThemeColor)
-                    
-                    Text("\(group.words.count)個の単語")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                HStack(spacing: 8) {
-                    Button(action: {
-                        showAddWord = true
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.caption)
+            // グループヘッダービュー
+            ZStack {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.name)
+                            .font(.headline)
+                            .fontWeight(.bold)
                             .foregroundColor(selectedThemeColor)
-                            .padding(6)
-                            .background(
-                                Circle()
-                                    .fill(selectedThemeColor.opacity(0.1))
-                            )
+                        
+                        Text("\(group.words.count)個の単語")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     
-                    Button(action: {
-                        onEditGroup(group)
-                    }) {
-                        Image(systemName: "pencil")
-                            .font(.caption)
-                            .foregroundColor(selectedThemeColor)
-                            .padding(6)
-                            .background(
-                                Circle()
-                                    .fill(selectedThemeColor.opacity(0.1))
-                            )
-                    }
-                    
-                    Button(action: {
-                        onDeleteGroup()
-                    }) {
-                        Image(systemName: "trash")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .padding(6)
-                            .background(
-                                Circle()
-                                    .fill(Color.red.opacity(0.1))
-                            )
-                    }
+                    Spacer()
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white)
+                        .shadow(color: selectedThemeColor.opacity(0.1), radius: 2, x: 0, y: 1)
+                )
+                .allowsHitTesting(false)
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onTapGroup(group)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white)
-                    .shadow(color: selectedThemeColor.opacity(0.1), radius: 2, x: 0, y: 1)
+            .allowsHitTesting(false)
+            .overlay(
+                HStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            showAddWord = true
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.caption)
+                                .foregroundColor(selectedThemeColor)
+                                .padding(6)
+                                .background(
+                                    Circle()
+                                        .fill(selectedThemeColor.opacity(0.1))
+                                )
+                        }
+                        
+                        Button(action: {
+                            onEditGroup(group)
+                        }) {
+                            Image(systemName: "pencil")
+                                .font(.caption)
+                                .foregroundColor(selectedThemeColor)
+                                .padding(6)
+                                .background(
+                                    Circle()
+                                        .fill(selectedThemeColor.opacity(0.1))
+                                )
+                        }
+                        
+                        Button(action: {
+                            onDeleteGroup()
+                        }) {
+                            Image(systemName: "trash")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .padding(6)
+                                .background(
+                                    Circle()
+                                        .fill(Color.red.opacity(0.1))
+                                )
+                        }
+                    }
+                    .padding(.trailing, 16)
+                }
             )
             
             // 単語一覧
             if !group.words.isEmpty {
                 VStack(spacing: 8) {
-                    ForEach(group.words.indices, id: \.self) { index in
-                        HStack {
-                            Text(group.words[index])
-                                .font(.body)
-                                .foregroundColor(.primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            
+                    ForEach(Array(group.words.enumerated()), id: \.offset) { index, word in
+                        HStack(spacing: 8) {
+                            // 単語テキスト部分（タップで選択コールバック）
                             Button(action: {
-                                group.words.remove(at: index)
+                                onTapWord(word)
+                            }) {
+                                HStack {
+                                    Text(word)
+                                        .font(.body)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .frame(maxWidth: .infinity)
+                            
+                            // 削除ボタン（単語単位）
+                            Button(action: {
+                                if let firstIndex = group.words.firstIndex(of: word) {
+                                    group.words.remove(at: firstIndex)
+                                    onGroupChanged()
+                                }
                             }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.caption)
                                     .foregroundColor(.red)
                             }
+                            .buttonStyle(PlainButtonStyle())
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
@@ -247,22 +286,23 @@ struct SimilarWordsGroupRow: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(selectedThemeColor.opacity(0.05))
                         )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            onTapWord(group.words[index])
-                        }
                     }
                 }
                 .padding(.top, 8)
             }
         }
         .padding(.horizontal)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // VStack 全体をタップしても何もしない（行タップによる誤動作を防ぐ）
+        }
         .sheet(isPresented: $showAddWord) {
             AddWordToGroupView(
                 groupName: group.name,
                 onSave: { word in
                     if !word.isEmpty && !group.words.contains(word) {
                         group.words.append(word)
+                        onGroupChanged()
                     }
                 },
                 selectedThemeColor: selectedThemeColor
@@ -271,6 +311,7 @@ struct SimilarWordsGroupRow: View {
     }
 }
 
+// 新しい類似語グループを追加するモーダルビュー
 struct AddSimilarWordsGroupView: View {
     let onSave: (String, [String]) -> Void
     let selectedThemeColor: Color
@@ -372,6 +413,7 @@ struct AddSimilarWordsGroupView: View {
     }
 }
 
+// グループを編集するモーダルビュー
 struct EditSimilarWordsGroupView: View {
     let group: SimilarWordsGroup
     let onSave: (SimilarWordsGroup) -> Void
@@ -429,14 +471,16 @@ struct EditSimilarWordsGroupView: View {
                             .foregroundColor(selectedThemeColor)
                         
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
-                            ForEach(words.indices, id: \.self) { index in
+                            ForEach(Array(words.enumerated()), id: \.offset) { index, word in
                                 HStack {
-                                    Text(words[index])
+                                    Text(word)
                                         .font(.caption)
                                         .foregroundColor(.primary)
                                     
                                     Button(action: {
-                                        words.remove(at: index)
+                                        if let firstIndex = words.firstIndex(of: word) {
+                                            words.remove(at: firstIndex)
+                                        }
                                     }) {
                                         Image(systemName: "xmark")
                                             .font(.caption2)
@@ -485,6 +529,7 @@ struct EditSimilarWordsGroupView: View {
     }
 }
 
+// グループに単語を追加するビュー
 struct AddWordToGroupView: View {
     let groupName: String
     let onSave: (String) -> Void
@@ -533,10 +578,6 @@ private extension SimilarWordsSettingsView {
     func handleWordSelection(_ word: String) {
         onSelectWord?(word)
         presentationMode.wrappedValue.dismiss()
-    }
-    
-    func handleGroupSelection(_ group: SimilarWordsGroup) {
-        handleWordSelection(group.name)
     }
 }
 

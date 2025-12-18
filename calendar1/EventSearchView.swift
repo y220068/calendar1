@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+// 検索モードの種類を表す列挙型
 enum SearchMode: String, CaseIterable {
     case prefix = "前方一致"
     case suffix = "後方一致"
@@ -14,7 +15,9 @@ enum SearchMode: String, CaseIterable {
     case contains = "部分一致"
 }
 
+// 予定検索画面の実装
 struct EventSearchView: View {
+    // 親ビューから受け取るイベント辞書とテーマ色
     @Binding var events: [String: [Event]]
     @Binding var selectedThemeColor: Color
     @Environment(\.presentationMode) var presentationMode
@@ -53,7 +56,7 @@ struct EventSearchView: View {
                 }
                 .padding()
                 
-                // 検索モード選択
+                // 検索モード選択セグメント
                 Picker("検索モード", selection: $selectedSearchMode) {
                     ForEach(SearchMode.allCases, id: \.self) { mode in
                         Text(mode.rawValue).tag(mode)
@@ -67,7 +70,7 @@ struct EventSearchView: View {
                     }
                 }
                 
-                // 検索結果
+                // 検索結果表示部
                 if isSearching {
                     ProgressView("検索中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -147,6 +150,7 @@ struct EventSearchView: View {
         }
     }
     
+    // 検索処理の本体。入力をトリムして空でなければ非同期（debounce）で検索を実行する
     private func performSearch(query: String) {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             searchResults = []
@@ -156,14 +160,14 @@ struct EventSearchView: View {
         
         isSearching = true
         
-        // 検索を少し遅延させて、ユーザーが入力中に頻繁に検索が実行されるのを防ぐ
+        // 検索を少し遅延させ、入力中の連続検索を防ぐ
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let lowercaseQuery = query.lowercased()
             let searchKeywords = similarWordsManager.findSimilarWords(for: lowercaseQuery).map { $0.lowercased() }
             
             var allEvents: [Event] = []
             
-            // 全ての予定を検索
+            // すべてのイベントを検索
             for (_, eventList) in events {
                 for event in eventList {
                     let eventTitle = event.title.lowercased()
@@ -174,12 +178,13 @@ struct EventSearchView: View {
                 }
             }
             
-            // 類似単語でグループ化
+            // 類似単語でグループ化して結果を作成
             searchResults = groupSimilarEvents(allEvents, query: lowercaseQuery)
             isSearching = false
         }
     }
     
+    // event タイトルがあるキーワードとマッチするかどうかを判定する
     private func matchesEventTitle(_ title: String, keywords: [String]) -> Bool {
         for keyword in keywords {
             let isMatch: Bool
@@ -201,13 +206,14 @@ struct EventSearchView: View {
         return false
     }
     
+    // 検索結果のイベントを類似キーワードでグループ化する
     private func groupSimilarEvents(_ events: [Event], query: String) -> [EventGroup] {
         var groups: [String: [Event]] = [:]
         
         for event in events {
             let title = event.title.lowercased()
             
-            // カスタム類似単語を使用してグループ化
+            // カスタム類似語グループを使ってグループ名を決定
             let groupName = findBestGroupMatch(title: title, query: query)
             
             if groups[groupName] == nil {
@@ -226,19 +232,20 @@ struct EventSearchView: View {
         }.sorted { $0.keyword < $1.keyword }
     }
     
+    // イベントタイトルに対して最適なグループ名を決定するロジック
     private func findBestGroupMatch(title: String, query: String) -> String {
         let lowercaseQuery = query.lowercased()
         
-        // まず、カスタム類似単語グループをチェック
+        // まずはカスタム類似語グループをチェック
         for group in similarWordsManager.similarWordsGroups {
-            // タイトルにグループ内の単語が含まれているかチェック
+            // タイトルにグループ内の単語が含まれているか
             for word in group.words {
                 if title.contains(word.lowercased()) {
                     return group.name
                 }
             }
             
-            // クエリがグループ内の単語と一致するかチェック
+            // クエリ自体がグループ内の単語と一致するか
             for word in group.words {
                 if word.lowercased() == lowercaseQuery {
                     return group.name
@@ -246,11 +253,11 @@ struct EventSearchView: View {
             }
         }
         
-        // カスタムグループにマッチしない場合は、従来のロジックを使用
+        // カスタムグループにマッチしない場合は既存のロジックでキーワード抽出と最良マッチを探す
         let keywords = extractKeywords(from: title)
         let bestMatch = findBestMatch(keywords: keywords, query: lowercaseQuery)
         
-        // クエリ自体がキーワードに含まれている場合は、そのキーワードを返す
+        // クエリ自体がキーワードに含まれている場合はそのキーワードを返す
         if keywords.contains(lowercaseQuery) {
             return lowercaseQuery
         }
@@ -258,8 +265,9 @@ struct EventSearchView: View {
         return bestMatch
     }
     
+    // タイトルから助詞や記号を取り除いて意味のあるキーワードを抽出する
     private func extractKeywords(from title: String) -> [String] {
-        // 日本語の助詞や記号を除去してキーワードを抽出
+        // 日本語の助詞や句読点を除去してキーワードを抽出
         let cleanedTitle = title
             .replacingOccurrences(of: "の", with: " ")
             .replacingOccurrences(of: "を", with: " ")
@@ -277,6 +285,7 @@ struct EventSearchView: View {
             .filter { !$0.isEmpty && $0.count > 1 }
     }
     
+    // 候補キーワードの中から最もクエリに近いものを返す
     private func findBestMatch(keywords: [String], query: String) -> String {
         // 完全一致を優先
         for keyword in keywords {
@@ -292,7 +301,7 @@ struct EventSearchView: View {
             }
         }
         
-        // 類似度が高いキーワードを探す
+        // 類似度（レーベンシュタイン距離）で最良候補を選択
         var bestMatch = keywords.first ?? query
         var bestScore = calculateSimilarity(query, keywords.first ?? "")
         
@@ -307,6 +316,7 @@ struct EventSearchView: View {
         return bestMatch
     }
     
+    // 文字列の類似度を 0.0-1.0 で返す（長さと編集距離から計算）
     private func calculateSimilarity(_ str1: String, _ str2: String) -> Double {
         let longer = str1.count > str2.count ? str1 : str2
         let shorter = str1.count > str2.count ? str2 : str1
@@ -319,6 +329,7 @@ struct EventSearchView: View {
         return (Double(longer.count) - Double(editDistance)) / Double(longer.count)
     }
     
+    // レーベンシュタイン距離の実装（編集距離）
     private func levenshteinDistance(_ str1: String, _ str2: String) -> Int {
         let a = Array(str1)
         let b = Array(str2)
@@ -347,12 +358,14 @@ struct EventSearchView: View {
     }
 }
 
+// 検索結果を表すグループ構造体
 struct EventGroup: Identifiable {
     let id: String
     let keyword: String
     let events: [Event]
 }
 
+// グループを折りたたみ可能に表示するセクションビュー
 struct EventGroupSection: View {
     let group: EventGroup
     let selectedThemeColor: Color
@@ -361,7 +374,7 @@ struct EventGroupSection: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // グループヘッダー
+            // グループヘッダー: 折りたたみと件数表示
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     isExpanded.toggle()

@@ -7,18 +7,23 @@
 
 import Foundation
 
+// アプリ内で共有されるシングルトンのマネージャ
 class SimilarWordsManager: ObservableObject {
+    // 共有インスタンス
     static let shared = SimilarWordsManager()
     
+    // 類似語グループの配列（UI が監視するため @Published）
     @Published var similarWordsGroups: [SimilarWordsGroup] = []
     
     private let userDefaults = UserDefaults.standard
     private let similarWordsKey = "SimilarWordsGroups"
     
+    // プライベートイニシャライザでシングルトンを維持
     private init() {
         loadSimilarWords()
     }
     
+    // グループ配列を UserDefaults に JSON エンコードして保存
     func saveSimilarWords() {
         do {
             let data = try JSONEncoder().encode(similarWordsGroups)
@@ -28,9 +33,10 @@ class SimilarWordsManager: ObservableObject {
         }
     }
     
+    // UserDefaults から読み込み、失敗した場合はデフォルトグループを作成
     private func loadSimilarWords() {
         guard let data = userDefaults.data(forKey: similarWordsKey) else {
-            // 初回起動時はデフォルトの類似単語グループを作成
+            // 初回起動時はデフォルトの類似語グループを作成
             createDefaultSimilarWords()
             return
         }
@@ -43,6 +49,7 @@ class SimilarWordsManager: ObservableObject {
         }
     }
     
+    // デフォルトの類似語グループを生成して保存
     private func createDefaultSimilarWords() {
         similarWordsGroups = [
             SimilarWordsGroup(name: "会議関連", words: ["会議", "ミーティング", "打ち合わせ", "会合"]),
@@ -54,11 +61,13 @@ class SimilarWordsManager: ObservableObject {
         saveSimilarWords()
     }
     
+    // 新しいグループを追加して保存
     func addGroup(_ group: SimilarWordsGroup) {
         similarWordsGroups.append(group)
         saveSimilarWords()
     }
     
+    // 既存グループを更新して保存
     func updateGroup(_ group: SimilarWordsGroup) {
         if let index = similarWordsGroups.firstIndex(where: { $0.id == group.id }) {
             similarWordsGroups[index] = group
@@ -66,11 +75,13 @@ class SimilarWordsManager: ObservableObject {
         }
     }
     
+    // グループを削除して保存
     func deleteGroup(_ group: SimilarWordsGroup) {
         similarWordsGroups.removeAll { $0.id == group.id }
         saveSimilarWords()
     }
     
+    // 指定した単語に一致するグループ内の単語群を返す（見つからなければ単語自身を返す）
     func findSimilarWords(for word: String) -> [String] {
         let lowercaseWord = word.lowercased()
         
@@ -83,6 +94,7 @@ class SimilarWordsManager: ObservableObject {
         return [word]
     }
     
+    // 単語がどのグループ名に属するかを返す。見つからなければ単語を返す。
     func getGroupName(for word: String) -> String {
         let lowercaseWord = word.lowercased()
         

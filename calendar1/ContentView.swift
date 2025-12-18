@@ -7,35 +7,58 @@
 
 import SwiftUI
 
+// Event 構造体: カレンダー上の1つの予定を表現するモデル
+// Identifiable に準拠して List / ForEach で利用可能にしている
 struct Event: Identifiable {
+    // 一意の識別子
     let id = UUID()
+    // 予定のタイトル
     var title: String
+    // 開始時刻
     var startTime: Date
+    // 終了時刻
     var endTime: Date
 }
 
+// ContentView: アプリのメイン画面。月表示のカレンダー、日ごとの予定表示、予定の追加・編集・削除、テーマ設定、検索を提供する。
 struct ContentView: View {
+    // --- State / ViewModel 相当のプロパティ ---
+    // 現在表示中の基準日（この月を表示するために用いる）
     @State private var currentDate = Date()
+    // 選択された日付（予定表示 / 追加対象となる）
     @State private var selectedDate: Date? = nil
+    // 予定追加用のモーダル表示フラグ
     @State private var showAddEvent = false
+    // 追加する予定のタイトル
     @State private var newEventText = ""
+    // 追加する予定の開始/終了時刻（時間部分のみ利用）
     @State private var newEventStartTime = Date()
     @State private var newEventEndTime = Date()
+    // 予定の格納: 日付キー ("yyyy-MM-dd") -> Event 配列
     @State private var events: [String: [Event]] = [:] // 日付文字列: 予定リスト
+    // 削除アラート表示フラグ
     @State private var showDeleteAlert = false
+    // 削除対象の特定情報(日付キーと配列内インデックス)
     @State private var eventToDelete: (dateKey: String, index: Int)? = nil
+    // 予定操作用アクションシート表示フラグ
     @State private var showActionSheet = false
+    // 編集対象の特定情報
     @State private var eventToEdit: (dateKey: String, index: Int)? = nil
+    // 編集用の入力状態
     @State private var editEventText = ""
     @State private var editEventStartTime = Date()
     @State private var editEventEndTime = Date()
     @State private var showEditSheet = false
+    // テーマカラー関連の状態
     @State private var selectedThemeColor = Color.blue
     @State private var selectedThemeColorIndex = 0
+    // 初回データ読込フラグ（onAppear で一度だけロードする）
     @State private var hasLoadedInitialData = false
+    // テーマ設定モーダル、検索画面フラグ
     @State private var showThemeSettings = false
     @State private var showSearchView = false
     
+    // 利用可能なテーマカラー配列（カラーパレット）
     private let themeColors: [Color] = [
         .blue, .red, .green, .orange, .purple, .pink, .teal, .indigo,
         .mint, .cyan, .brown, .yellow, .gray,
@@ -57,9 +80,14 @@ struct ContentView: View {
         Color(red: 0.4, green: 0.8, blue: 0.8)  // ライトシアン
     ]
     
+    // UserDefaults に保存するキー（選択したテーマ色のインデックス）
     private let themeColorKey = "selectedThemeColorIndex"
+    // カレンダー情報（現在のロケールのカレンダ）
     private var calendar: Calendar { Calendar.current }
+    // iCal 読み書き用のユーティリティ
     private let icalManager = ICalManager()
+    
+    // 現在の currentDate の月に含まれる全ての日付配列を作って返す computed property
     private var daysInMonth: [Date] {
         guard let monthInterval = calendar.dateInterval(of: .month, for: currentDate) else { return [] }
         var dates: [Date] = []
@@ -70,14 +98,17 @@ struct ContentView: View {
         }
         return dates
     }
+    // 月の最初の日の曜日（1=日曜, 2=月曜, ...）を返す
     private var firstWeekday: Int {
         calendar.component(.weekday, from: daysInMonth.first ?? Date())
     }
+    // 曜日のラベル（日本語）
     private let weekDays = ["日", "月", "火", "水", "木", "金", "土"]
     
+    // ビュー本体
     var body: some View {
         ZStack {
-            // 背景グラデーション
+            // 背景グラデーション: テーマ色を薄く使った柔らかい背景
             LinearGradient(
                 gradient: Gradient(colors: [
                     selectedThemeColor.opacity(0.15),
@@ -90,7 +121,7 @@ struct ContentView: View {
             .ignoresSafeArea()
             
             VStack {
-                // ヘッダー（月表示とボタン群）
+                // ヘッダー（年月、月移動ボタン、検索・テーマボタン）
                 HStack(spacing: 12) {
                     Button(action: { changeMonth(by: -1) }) {
                         Image(systemName: "chevron.left")
@@ -123,7 +154,7 @@ struct ContentView: View {
                     Spacer()
                     
                     HStack(spacing: 12) {
-                        // 検索ボタン
+                        // 検索ボタン: 押すと検索ビューをモーダルで開く
                         Button(action: {
                             showSearchView = true
                         }) {
@@ -138,7 +169,7 @@ struct ContentView: View {
                                 )
                         }
                         
-                        // テーマ設定ボタン
+                        // テーマ設定ボタン: カラーピッカー的なモーダルを開く
                         Button(action: {
                             showThemeSettings = true
                         }) {
@@ -159,7 +190,7 @@ struct ContentView: View {
                 
                 // カレンダーコンテナ
                 VStack(spacing: 0) {
-                    // 曜日表示
+                    // 曜日表示行
                     HStack {
                         ForEach(weekDays, id: \ .self) { day in
                             Text(day)
@@ -180,7 +211,7 @@ struct ContentView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 10)
                     
-                    // 日付グリッド
+                    // 日付グリッド生成のための配列準備
                     let leadingSpaces = Array(repeating: "", count: firstWeekday - 1)
                     let days = daysInMonth.map { String(calendar.component(.day, from: $0)) }
                     let allDays = leadingSpaces + days
@@ -190,11 +221,13 @@ struct ContentView: View {
                             let date = isDate ? daysInMonth[i - leadingSpaces.count] : nil
                             ZStack {
                                 if isDate, let date = date {
+                                    // セルの選択状態 / 今日判定 / 当日のイベント取得
                                     let isSelected = calendar.isDate(date, inSameDayAs: selectedDate ?? Date.distantPast)
                                     let isToday = calendar.isDateInToday(date)
                                     let dateKey = dateKey(date)
                                     let dayEvents = events[dateKey] ?? []
                                     
+                                    // セルの背景（選択 or 今日で色分け）
                                     RoundedRectangle(cornerRadius: 14)
                                         .fill(
                                             isSelected ? selectedThemeColor.opacity(0.4) :
@@ -224,7 +257,7 @@ struct ContentView: View {
                                                 (i % 7 == 0) ? .red : (i % 7 == 6 ? .blue : .primary)
                                             )
                                         
-                                        // 予定の表示（最大3件）
+                                        // その日の予定を最大3件まで表示し、超過があれば +N 表示する
                                         if !dayEvents.isEmpty {
                                             VStack(spacing: 1) {
                                                 ForEach(0..<min(dayEvents.count, 3), id: \.self) { idx in
@@ -252,12 +285,14 @@ struct ContentView: View {
                                         }
                                     }
                                 } else {
+                                    // 月の前後の空セル（見た目揃え用）
                                     Text(allDays[i])
                                         .foregroundColor(.clear)
                                         .frame(height: 50)
                                 }
                             }
                             .onTapGesture {
+                                // 日付セルをタップすると選択して予定追加モーダルを開く
                                 if isDate, let date = date {
                                     selectedDate = date
                                     showAddEvent = true
@@ -274,12 +309,12 @@ struct ContentView: View {
                 )
                 .padding(.horizontal)
                 
-                // 選択した日付の予定表示
+                // 選択した日の予定一覧表示エリア
                 if let selectedDate = selectedDate {
                     let key = dateKey(selectedDate)
                     VStack(alignment: .leading, spacing: 15) {
                         HStack {
-                            Text("\(monthYearString(selectedDate)) \(calendar.component(.day, from: selectedDate))日の予定")
+                            Text("\(monthYearString(selectedDate)) \(calendar.component(.day, from: selectedDate))日 の予定")
                                 .font(.headline)
                                 .fontWeight(.bold)
                                 .foregroundColor(selectedThemeColor)
@@ -289,10 +324,12 @@ struct ContentView: View {
                         .padding(.horizontal)
                         
                         if let eventList = events[key], !eventList.isEmpty {
+                            // 日付に登録された予定を開始時間でソートして表示
                             let sortedEvents = eventList.sorted { $0.startTime < $1.startTime }
                             ForEach(sortedEvents.indices, id: \ .self) { idx in
                                 let event = sortedEvents[idx]
                                 HStack {
+                                    // 時刻ラベル（開始-終了）
                                     Text("\(timeString(event.startTime))-\(timeString(event.endTime))")
                                         .font(.caption)
                                         .fontWeight(.bold)
@@ -305,6 +342,7 @@ struct ContentView: View {
                                                 .shadow(color: selectedThemeColor.opacity(0.4), radius: 2, x: 0, y: 1)
                                         )
                                     
+                                    // タイトル
                                     Text("・\(event.title)")
                                         .fontWeight(.medium)
                                         .foregroundColor(.primary)
@@ -319,7 +357,7 @@ struct ContentView: View {
                                         .shadow(color: selectedThemeColor.opacity(0.2), radius: 4, x: 0, y: 2)
                                 )
                                 .onTapGesture {
-                                    // 元のリストでのインデックスを取得
+                                    // 元のリストでのインデックスを取得して編集対象にセット
                                     if let originalIndex = eventList.firstIndex(where: { $0.id == event.id }) {
                                         eventToEdit = (key, originalIndex)
                                         showActionSheet = true
@@ -327,6 +365,7 @@ struct ContentView: View {
                                 }
                             }
                         } else {
+                            // 予定がない場合のプレースホルダ表示
                             HStack {
                                 Image(systemName: "calendar.badge.plus")
                                     .foregroundColor(selectedThemeColor.opacity(0.6))
@@ -350,12 +389,14 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            // 初回表示時に iCal から予定をロードし、テーマを復元する
             if !hasLoadedInitialData {
                 events = icalManager.loadEvents()
                 loadThemeColor()
                 hasLoadedInitialData = true
             }
         }
+        // 予定追加のモーダル
         .sheet(isPresented: $showAddEvent) {
             VStack {
                 Text("予定を追加")
@@ -379,6 +420,7 @@ struct ContentView: View {
                 .padding()
                 HStack {
                     Button("キャンセル") {
+                        // 入力を破棄してモーダルを閉じる
                         showAddEvent = false
                         newEventText = ""
                         newEventStartTime = Date()
@@ -387,6 +429,7 @@ struct ContentView: View {
                     .padding()
                     Spacer()
                     Button("追加") {
+                        // 選択日があり、タイトルが空でなければイベントを追加
                         if let selectedDate = selectedDate, !newEventText.isEmpty {
                             let key = dateKey(selectedDate)
                             let start = combine(date: selectedDate, time: newEventStartTime)
@@ -400,6 +443,7 @@ struct ContentView: View {
                             }
                             saveEventsToICal()
                         }
+                        // モーダルを閉じて入力リセット
                         showAddEvent = false
                         newEventText = ""
                         newEventStartTime = Date()
@@ -411,6 +455,7 @@ struct ContentView: View {
             }
             .padding()
         }
+        // 予定の操作（編集 / 削除）用アクションシート
         .actionSheet(isPresented: $showActionSheet) {
             ActionSheet(
                 title: Text("予定の操作"),
@@ -435,6 +480,7 @@ struct ContentView: View {
                 ]
             )
         }
+        // 編集用モーダル
         .sheet(isPresented: $showEditSheet) {
             VStack {
                 Text("予定を編集")
@@ -458,6 +504,7 @@ struct ContentView: View {
                 .padding()
                 HStack {
                     Button("キャンセル") {
+                        // 編集を破棄して閉じる
                         showEditSheet = false
                         editEventText = ""
                         editEventStartTime = Date()
@@ -467,6 +514,7 @@ struct ContentView: View {
                     .padding()
                     Spacer()
                     Button("保存") {
+                        // 編集内容を保存して iCal に書き出す
                         if let info = eventToEdit, !editEventText.isEmpty {
                             var list = events[info.dateKey] ?? []
                             list[info.index] = Event(title: editEventText, startTime: editEventStartTime, endTime: editEventEndTime)
@@ -485,12 +533,14 @@ struct ContentView: View {
             }
             .padding()
         }
+        // 検索画面モーダル
         .sheet(isPresented: $showSearchView) {
             EventSearchView(
                 events: $events,
                 selectedThemeColor: $selectedThemeColor
             )
         }
+        // テーマ設定モーダル
         .sheet(isPresented: $showThemeSettings) {
             VStack {
                 Text("テーマカラーを選択")
@@ -523,6 +573,7 @@ struct ContentView: View {
             }
             .padding()
         }
+        // 削除確認アラート
         .alert(isPresented: $showDeleteAlert) {
             Alert(
                 title: Text("予定の削除"),
@@ -542,6 +593,8 @@ struct ContentView: View {
         }
     }
     
+    // --- ユーティリティ関数群 ---
+    // 月年を日本語フォーマットで返す
     private func monthYearString(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
@@ -549,6 +602,7 @@ struct ContentView: View {
         return formatter.string(from: date)
     }
     
+    // 日付キー (yyyy-MM-dd) を生成する
     private func dateKey(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
@@ -556,6 +610,7 @@ struct ContentView: View {
         return formatter.string(from: date)
     }
     
+    // 時刻を HH:mm 形式で返す
     private func timeString(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
@@ -563,6 +618,7 @@ struct ContentView: View {
         return formatter.string(from: date)
     }
     
+    // 日付（Y/M/D）と時間（H:M）を組み合わせて1つの Date を作る
     private func combine(date: Date, time: Date) -> Date {
         var calendar = Calendar.current
         calendar.timeZone = TimeZone.current
@@ -581,10 +637,12 @@ struct ContentView: View {
         return calendar.date(from: combinedComponents) ?? date
     }
     
+    // iCal に保存するラッパー
     private func saveEventsToICal() {
         icalManager.saveEvents(events)
     }
     
+    // 月を変更するヘルパー。月を変更したら日付選択をリセットする
     private func changeMonth(by value: Int) {
         if let nextDate = calendar.date(byAdding: .month, value: value, to: currentDate) {
             currentDate = nextDate
@@ -593,6 +651,7 @@ struct ContentView: View {
         }
     }
     
+    // 保存済みのテーマ色を UserDefaults から読み込む
     private func loadThemeColor() {
         let defaults = UserDefaults.standard
         if defaults.object(forKey: themeColorKey) != nil {
@@ -607,6 +666,7 @@ struct ContentView: View {
         selectedThemeColor = themeColors.first ?? .blue
     }
     
+    // 選択したテーマ色インデックスを保存
     private func saveThemeColor(index: Int) {
         UserDefaults.standard.set(index, forKey: themeColorKey)
     }
