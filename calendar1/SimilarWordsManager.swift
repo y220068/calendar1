@@ -5,33 +5,36 @@
 //  Created by 小野華凜 on 2025/05/10.
 //
 
-// このクラスは「似た意味の単語グループ」を管理します。
-// たとえば「会議」「ミーティング」「打ち合わせ」を一つのグループにしておくと、
-// 検索時にそれらをまとめて扱えるようになります。
-
-// 初心者向け説明：
-// - このクラスはアプリ全体で一つだけ（シングルトン）しか作りません。
-// - グループは名前（例: 会議関連）と、そのグループに含まれる単語の配列で構成されます。
-// - グループの追加・更新・削除ができ、UserDefaults に保存されます。
-
 import Foundation
 
+// SimilarWordsManager: 類義語グループ（SimilarWordsGroup の配列）を管理するシングルトンです。
+// - 役割: 類義語の追加・更新・削除・検索、永続化（保存/読み込み）を担当します。
+// - データ構造: `similarWordsGroups` は Observable な配列で、UI（SwiftUI）の監視対象になります。
+// - 保存形式: JSON にエンコードしたデータをアプリの Documents フォルダ（similar_words.json）に保存します。
+// - 起動時の挙動: 初期化時に `loadSimilarWords()` を呼び、ファイルが無ければ UserDefaults からの移行を試み、さらに無ければデフォルトデータを生成します。
+
+// 使い方（簡単）:
+// - 読み取り: `SimilarWordsManager.shared.similarWordsGroups` を参照してください。
+// - 変更: `addGroup`, `updateGroup`, `deleteGroup` を利用すると自動的に保存されます。
+// - 検索: `findSimilarWords(for:)` に単語を渡すと、その単語を含むグループの単語リスト（類義語）を返します。
+
+// 注意点:
+// - ファイルアクセスに失敗する可能性があるため、デコードに失敗した場合はデフォルトセットを作成して保存します。
+// - データ量が増えた場合は、UserDefaults ではなくファイルまたはデータベースの使用を検討してください。
+
 class SimilarWordsManager: ObservableObject {
-    // ここを通じてアプリのどこからでも同じデータにアクセスできます
     static let shared = SimilarWordsManager()
-
-    // 類似語グループの配列（UI が変化を監視できるように @Published）
+    
     @Published var similarWordsGroups: [SimilarWordsGroup] = []
-
+    
     private let userDefaults = UserDefaults.standard
     private let similarWordsKey = "SimilarWordsGroups"
-
-    // プライベートな初期化: 外部から生成できない（シングルトンを強制）
+    
     private init() {
         loadSimilarWords()
     }
-
-    // saveSimilarWords: グループ配列を JSON にして UserDefaults に保存する
+    
+    /// 類義語グループを UserDefaults に保存します。
     func saveSimilarWords() {
         do {
             let data = try JSONEncoder().encode(similarWordsGroups)
@@ -40,14 +43,16 @@ class SimilarWordsManager: ObservableObject {
             print("Failed to save similar words: \(error)")
         }
     }
-
-    // loadSimilarWords: 保存データがあれば読み込む。なければデフォルトのグループを作る
+    
+    /// UserDefaults から類義語グループを読み込みます。
+    /// - 失敗した場合: デフォルトの類似単語グループを作成します。
     private func loadSimilarWords() {
         guard let data = userDefaults.data(forKey: similarWordsKey) else {
+            // 初回起動時はデフォルトの類似単語グループを作成
             createDefaultSimilarWords()
             return
         }
-
+        
         do {
             similarWordsGroups = try JSONDecoder().decode([SimilarWordsGroup].self, from: data)
         } catch {
@@ -55,8 +60,8 @@ class SimilarWordsManager: ObservableObject {
             createDefaultSimilarWords()
         }
     }
-
-    // createDefaultSimilarWords: 初回起動時の例となるグループを用意する
+    
+    /// デフォルトの類似単語グループを作成します。
     private func createDefaultSimilarWords() {
         similarWordsGroups = [
             SimilarWordsGroup(name: "会議関連", words: ["会議", "ミーティング", "打ち合わせ", "会合"]),
@@ -67,48 +72,57 @@ class SimilarWordsManager: ObservableObject {
         ]
         saveSimilarWords()
     }
-
-    // 外部からグループを追加
+    
+    /// 類義語グループを追加します。
+    /// - Parameter group: 追加する類義語グループ
     func addGroup(_ group: SimilarWordsGroup) {
         similarWordsGroups.append(group)
         saveSimilarWords()
     }
-
-    // 既存グループを更新（id が一致するものを置き換える）
+    
+    /// 類義語グループを更新します。
+    /// - Parameter group: 更新する類義語グループ
     func updateGroup(_ group: SimilarWordsGroup) {
         if let index = similarWordsGroups.firstIndex(where: { $0.id == group.id }) {
             similarWordsGroups[index] = group
             saveSimilarWords()
         }
     }
-
-    // グループを削除
+    
+    /// 類義語グループを削除します。
+    /// - Parameter group: 削除する類義語グループ
     func deleteGroup(_ group: SimilarWordsGroup) {
         similarWordsGroups.removeAll { $0.id == group.id }
         saveSimilarWords()
     }
-
-    // findSimilarWords: 指定した単語がどのグループにあるかを調べ、そのグループ内の単語を返す
-    // 例: "会議" を渡すと ["会議", "ミーティング", ...] の配列を返す
+    
+    /// 単語に関連する類義語を検索します。
+    /// - Parameter word: 検索する単語
+    /// - Returns: 類義語の配列
     func findSimilarWords(for word: String) -> [String] {
         let lowercaseWord = word.lowercased()
+        
         for group in similarWordsGroups {
             if group.words.contains(where: { $0.lowercased() == lowercaseWord }) {
                 return group.words
             }
         }
-        // 見つからなければ入力した単語だけを返す
+        
         return [word]
     }
-
-    // getGroupName: 単語が属するグループ名を返す（例: "会議" -> "会議関連"）。見つからなければ単語自身を返す
+    
+    /// 単語に関連するグループ名を取得します。
+    /// - Parameter word: 検索する単語
+    /// - Returns: グループ名
     func getGroupName(for word: String) -> String {
         let lowercaseWord = word.lowercased()
+        
         for group in similarWordsGroups {
             if group.words.contains(where: { $0.lowercased() == lowercaseWord }) {
                 return group.name
             }
         }
+        
         return word
     }
 }
