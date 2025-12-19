@@ -31,7 +31,7 @@ struct SimilarWordsSettingsView: View {
     var body: some View {
         NavigationView {
             VStack {
-                // 説明ボックス: この画面が何をするところかを簡単に説明
+                // ヘッダー: この画面が何をするところかを簡単に説明
                 VStack(alignment: .leading, spacing: 6) {
                     Text("類似語の設定")
                         .font(.headline)
@@ -62,14 +62,13 @@ struct SimilarWordsSettingsView: View {
                             SimilarWordsGroupRow(
                                 group: $similarWordsGroups[i],
                                 selectedThemeColor: selectedThemeColor,
-                                onEdit: { g in
-                                    editingGroup = g
-                            }, onTapWord: { w in
-                                onSelectWord?(w)
-                                presentationMode.wrappedValue.dismiss()
-                            }, onGroupChanged: {
-                                saveSimilarWords()
-                            })
+                                onEdit: { g in editingGroup = g },
+                                onTapWord: { w in
+                                    onSelectWord?(w)
+                                    presentationMode.wrappedValue.dismiss()
+                                },
+                                onGroupChanged: { saveSimilarWords() }
+                            )
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                         }
@@ -86,8 +85,16 @@ struct SimilarWordsSettingsView: View {
             .navigationTitle("類似語設定")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { Button("閉じる") { presentationMode.wrappedValue.dismiss() }.foregroundColor(selectedThemeColor) }
-                ToolbarItem(placement: .navigationBarTrailing) { Button(action: { showAddGroup = true }) { HStack { Image(systemName: "plus"); Text("グループを追加") } }.foregroundColor(selectedThemeColor) }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("閉じる") { presentationMode.wrappedValue.dismiss() }
+                        .foregroundColor(selectedThemeColor)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { showAddGroup = true }) {
+                        HStack { Image(systemName: "plus"); Text("グループを追加") }
+                    }
+                    .foregroundColor(selectedThemeColor)
+                }
             }
         }
         .sheet(isPresented: $showAddGroup) {
@@ -140,7 +147,8 @@ struct SimilarWordsGroupRow: View {
     @State private var showAddWord = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            // ヘッダー（グループ名と操作ボタン）
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(group.name).font(.headline).foregroundColor(selectedThemeColor)
@@ -158,41 +166,40 @@ struct SimilarWordsGroupRow: View {
 
             // 単語一覧（個別に削除できる）
             if !group.words.isEmpty {
-                InlineTagListView(tags: group.words, onTap: { w in onTapWord(w) })
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
+                VStack(spacing: 8) {
+                    ForEach(Array(group.words.enumerated()), id: \.offset) { index, word in
+                        HStack {
+                            Button(action: { onTapWord(word) }) {
+                                HStack { Text(word).font(.body).foregroundColor(.primary); Spacer() }
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Button(action: {
+                                if let firstIndex = group.words.firstIndex(of: word) {
+                                    group.words.remove(at: firstIndex)
+                                    onGroupChanged()
+                                }
+                            }) {
+                                Image(systemName: "xmark.circle.fill").font(.caption).foregroundColor(.red)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemGray6)))
+                    }
+                }
+                .padding(.top, 8)
             }
         }
+        .padding(.horizontal)
         .sheet(isPresented: $showAddWord) {
             AddWordToGroupView(groupName: group.name, onSave: { w in
-                let trimmed = w.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty && !group.words.contains(trimmed) else { return }
-                group.words.append(trimmed)
+                let t = w.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !t.isEmpty && !group.words.contains(t) else { return }
+                group.words.append(t)
                 onGroupChanged()
             }, selectedThemeColor: selectedThemeColor)
-        }
-    }
-}
-
-// Inline small tag list
-struct InlineTagListView: View {
-    let tags: [String]
-    let onTap: (String) -> Void
-
-    var body: some View {
-        let maxShow = 6
-        HStack(spacing: 6) {
-            ForEach(Array(tags.prefix(maxShow)).indices, id: \.self) { idx in
-                let tag = tags[idx]
-                Button(action: { onTap(tag) }) {
-                    Text(tag).font(.caption2).padding(.horizontal, 8).padding(.vertical, 6).background(RoundedRectangle(cornerRadius: 6).fill(Color(.systemGray6)))
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            if tags.count > maxShow {
-                Text("+\(tags.count - maxShow)").font(.caption2).foregroundColor(.secondary).padding(.leading, 4)
-            }
-            Spacer()
         }
     }
 }
@@ -211,6 +218,7 @@ struct AddSimilarWordsGroupView: View {
         NavigationView {
             VStack(alignment: .leading, spacing: 12) {
                 TextField("グループ名", text: $name).textFieldStyle(RoundedBorderTextFieldStyle())
+
                 HStack {
                     TextField("単語を追加", text: $newWord).textFieldStyle(RoundedBorderTextFieldStyle())
                     Button("追加") {
@@ -221,7 +229,9 @@ struct AddSimilarWordsGroupView: View {
                     }
                     .disabled(newWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+
                 if !words.isEmpty { FlowTagView(tags: words, onRemove: { idx in words.remove(at: idx) }) }
+
                 Spacer()
             }
             .padding()
@@ -260,6 +270,7 @@ struct EditSimilarWordsGroupView: View {
         NavigationView {
             VStack(alignment: .leading, spacing: 12) {
                 TextField("グループ名", text: $name).textFieldStyle(RoundedBorderTextFieldStyle())
+
                 HStack {
                     TextField("単語を追加", text: $newWord).textFieldStyle(RoundedBorderTextFieldStyle())
                     Button("追加") {
@@ -270,8 +281,11 @@ struct EditSimilarWordsGroupView: View {
                     }
                     .disabled(newWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+
                 if !words.isEmpty { FlowTagView(tags: words, onRemove: { idx in words.remove(at: idx) }) }
+
                 Spacer()
+
                 Button(action: { showDeleteAlert = true }) {
                     Text("グループを削除").foregroundColor(.white).frame(maxWidth: .infinity).padding().background(RoundedRectangle(cornerRadius: 10).fill(Color.red))
                 }
@@ -293,7 +307,7 @@ struct EditSimilarWordsGroupView: View {
     }
 }
 
-// FlowTagView used in add/edit screens
+// Helper tag view used in add/edit screens
 struct FlowTagView: View {
     let tags: [String]
     let onRemove: (Int) -> Void
@@ -309,7 +323,7 @@ struct FlowTagView: View {
     }
 }
 
-// AddWordToGroupView: 単語を一つだけグループに追加するための小さな画面
+// Small helper to add a single word
 struct AddWordToGroupView: View {
     let groupName: String
     let onSave: (String) -> Void
@@ -333,5 +347,5 @@ struct AddWordToGroupView: View {
 }
 
 #Preview {
-    SimilarWordsSettingsView(similarWordsGroups: .constant([SimilarWordsGroup(name: "会議関連", words: ["会議","打ち合わせ","ミーティング"])]), selectedThemeColor: .constant(.blue))
+    SimilarWordsSettingsView(similarWordsGroups: .constant([SimilarWordsGroup(name: "会議関連", words: ["会議","ミーティング","打ち合わせ"])]), selectedThemeColor: .constant(.blue))
 }
