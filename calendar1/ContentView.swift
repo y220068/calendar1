@@ -7,29 +7,20 @@
 
 import SwiftUI
 
-// ContentView: アプリのメイン画面（カレンダー表示）
-// - 月ごとのカレンダービューを表示し、日付を選択して予定の追加・編集・削除ができます。
-// - 予定の永続化は ICalManager を使って `Documents/events.ics` に iCalendar 形式で保存されます。
-// - テーマ色は UserDefaults に保存されます（キー: "selectedThemeColorIndex"）。
-// - 初心者向けデータフロー:
-//   1. アプリ起動時 (`.onAppear`) に ICalManager.loadEvents() で .ics ファイルを読み込み `events` にセット
-//   2. ユーザーが予定を追加/編集/削除すると `saveEventsToICal()` を呼んで ICalManager.saveEvents(events) でファイルを書き出す
-//   3. 表示は `events[dateKey]` で取得したその日の配列を描画
-
-struct Event: Identifiable {
-    let id = UUID()
-    var title: String
-    var startTime: Date
-    var endTime: Date
-}
-
+// Use shared Event model defined in EventModel.swift
 struct ContentView: View {
+    // Category manager for category list and persistence
+    @StateObject private var categoryManager = CategoryManager.shared
+    // Controls category settings sheet
+    @State private var showCategorySettings = false
+
     @State private var currentDate = Date()
     @State private var selectedDate: Date? = nil
     @State private var showAddEvent = false
     @State private var newEventText = ""
     @State private var newEventStartTime = Date()
     @State private var newEventEndTime = Date()
+    @State private var newEventCategoryID: String? = nil
     @State private var events: [String: [Event]] = [:] // 日付文字列: 予定リスト
     @State private var showDeleteAlert = false
     @State private var eventToDelete: (dateKey: String, index: Int)? = nil
@@ -38,6 +29,7 @@ struct ContentView: View {
     @State private var editEventText = ""
     @State private var editEventStartTime = Date()
     @State private var editEventEndTime = Date()
+    @State private var editEventCategoryID: String? = nil
     @State private var showEditSheet = false
     @State private var selectedThemeColor = Color.blue
     @State private var selectedThemeColorIndex = 0
@@ -161,10 +153,24 @@ struct ContentView: View {
                                         .shadow(color: selectedThemeColor.opacity(0.4), radius: 4, x: 0, y: 2)
                                 )
                         }
-                    }
-                }
-                .padding(.top)
-                .padding(.horizontal)
+                        
+                        // カテゴリ設定ボタン（ヘッダー）
+                        Button(action: { showCategorySettings = true }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "tag.fill")
+                                    .foregroundColor(.white)
+                                Text("カテゴリ")
+                                    .foregroundColor(.white)
+                                    .font(.subheadline)
+                            }
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 10)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(selectedThemeColor))
+                        }
+                     }
+                 }
+                 .padding(.top)
+                 .padding(.horizontal)
                 
                 // カレンダーコンテナ
                 VStack(spacing: 0) {
@@ -373,6 +379,18 @@ struct ContentView: View {
                 TextField("予定を入力", text: $newEventText)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
+                // カテゴリ選択（任意）
+                VStack(alignment: .leading) {
+                    Text("カテゴリ（任意）").font(.caption).foregroundColor(.secondary)
+                    Picker("カテゴリ", selection: Binding(get: { newEventCategoryID ?? "" }, set: { newEventCategoryID = $0.isEmpty ? nil : $0 })) {
+                        Text("なし").tag("")
+                        ForEach(categoryManager.categories) { cat in
+                            Text(cat.name).tag(cat.id)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .padding(.horizontal)
+                }
                 HStack {
                     VStack(alignment: .leading) {
                         Text("開始時間")
@@ -392,6 +410,7 @@ struct ContentView: View {
                         newEventText = ""
                         newEventStartTime = Date()
                         newEventEndTime = Date()
+                        newEventCategoryID = nil
                     }
                     .padding()
                     Spacer()
@@ -400,7 +419,7 @@ struct ContentView: View {
                             let key = dateKey(selectedDate)
                             let start = combine(date: selectedDate, time: newEventStartTime)
                             let end = combine(date: selectedDate, time: newEventEndTime)
-                            let event = Event(title: newEventText, startTime: start, endTime: end)
+                            let event = Event(title: newEventText, startTime: start, endTime: end, categoryID: newEventCategoryID)
                             if events[key] != nil {
                                 events[key]?.append(event)
                                 events[key]?.sort { $0.startTime < $1.startTime }
@@ -413,6 +432,7 @@ struct ContentView: View {
                         newEventText = ""
                         newEventStartTime = Date()
                         newEventEndTime = Date()
+                        newEventCategoryID = nil
                     }
                     .foregroundColor(selectedThemeColor)
                     .padding()
@@ -431,6 +451,8 @@ struct ContentView: View {
                             editEventText = event.title
                             editEventStartTime = event.startTime
                             editEventEndTime = event.endTime
+                            // prefill selected category for editing
+                            editEventCategoryID = event.categoryID
                             showEditSheet = true
                         }
                     },
@@ -452,6 +474,18 @@ struct ContentView: View {
                 TextField("予定を入力", text: $editEventText)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
+                // カテゴリ選択（任意）
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("カテゴリ（任意）").font(.caption).foregroundColor(.secondary)
+                    Picker("カテゴリ", selection: Binding(get: { editEventCategoryID ?? "" }, set: { editEventCategoryID = $0.isEmpty ? nil : $0 })) {
+                        Text("なし").tag("")
+                        ForEach(categoryManager.categories) { cat in
+                            Text(cat.name).tag(cat.id)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .padding(.horizontal)
+                }
                 HStack {
                     VStack(alignment: .leading) {
                         Text("開始時間")
@@ -478,7 +512,9 @@ struct ContentView: View {
                     Button("保存") {
                         if let info = eventToEdit, !editEventText.isEmpty {
                             var list = events[info.dateKey] ?? []
-                            list[info.index] = Event(title: editEventText, startTime: editEventStartTime, endTime: editEventEndTime)
+                            let oldID = list[info.index].id
+                            let reconstructed = Event(id: oldID, title: editEventText, startTime: editEventStartTime, endTime: editEventEndTime, categoryID: editEventCategoryID)
+                            list[info.index] = reconstructed
                             events[info.dateKey] = list
                             saveEventsToICal()
                         }
@@ -487,6 +523,7 @@ struct ContentView: View {
                         editEventStartTime = Date()
                         editEventEndTime = Date()
                         eventToEdit = nil
+                        editEventCategoryID = nil
                     }
                     .foregroundColor(selectedThemeColor)
                     .padding()
@@ -531,6 +568,25 @@ struct ContentView: View {
                 .padding()
             }
             .padding()
+        }
+        // Category settings sheet
+        .sheet(isPresented: $showCategorySettings) {
+            CategorySettingsView(categories: $categoryManager.categories, selectedThemeColor: $selectedThemeColor)
+        }
+        
+        // Floating category button bottom-right
+        .overlay(alignment: .bottomTrailing) {
+            Button(action: { showCategorySettings = true }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "tag") .foregroundColor(.white)
+                    Text("カテゴリ") .foregroundColor(.white)
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 14).fill(selectedThemeColor))
+                .shadow(radius: 6)
+                .padding()
+            }
+            .zIndex(2)
         }
         .alert(isPresented: $showDeleteAlert) {
             Alert(
