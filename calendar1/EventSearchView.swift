@@ -7,17 +7,16 @@
 
 import SwiftUI
 
-// EventSearchView: 予定のテキスト検索画面
-// - 入力されたキーワード（および類義語グループ）でアプリ内の予定を検索し、結果をグループ化して表示します。
-// - 類義語は SimilarWordsManager によって管理され、検索キーワードの拡張に使われます。
-// - 検索マッチの判定（prefix/suffix/exact/contains）をサポートし、さらに類似度判定（Levenshtein）で曖昧検索を補助します。
-// - パフォーマンス: 小〜中規模のイベント数なら問題ありませんが、非常に多数のイベントの場合は検索負荷が高くなる可能性があります。
+// 検索画面：キーワード入力、検索モード選択、結果表示
+// 変更点：レーベンシュタイン距離による類似度を廃止し、
+// SimilarWordsManager の類義語グループに基づく簡潔な判定に置き換えています。
 
 enum SearchMode: String, CaseIterable {
     case prefix = "前方一致"
     case suffix = "後方一致"
     case exact = "完全一致"
     case contains = "部分一致"
+    case synonym = "類義語一致"
 }
 
 struct EventSearchView: View {
@@ -25,15 +24,15 @@ struct EventSearchView: View {
     @Binding var selectedThemeColor: Color
     @Environment(\.presentationMode) var presentationMode
     @StateObject private var similarWordsManager = SimilarWordsManager.shared
-    
+
     @State private var searchText = ""
     @State private var searchResults: [EventGroup] = []
     @State private var isSearching = false
     @State private var showSimilarWordsSettings = false
     @State private var selectedSearchMode: SearchMode = .contains
-    
+
     private var calendar: Calendar { Calendar.current }
-    
+
     var body: some View {
         NavigationView {
             VStack {
@@ -42,13 +41,13 @@ struct EventSearchView: View {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(selectedThemeColor)
                         .font(.title2)
-                    
+
                     TextField("予定を検索...", text: $searchText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .onChange(of: searchText) { newValue in
                             performSearch(query: newValue)
                         }
-                    
+
                     if !searchText.isEmpty {
                         Button("クリア") {
                             searchText = ""
@@ -58,7 +57,7 @@ struct EventSearchView: View {
                     }
                 }
                 .padding()
-                
+
                 // 検索モード選択
                 Picker("検索モード", selection: $selectedSearchMode) {
                     ForEach(SearchMode.allCases, id: \.self) { mode in
@@ -72,8 +71,8 @@ struct EventSearchView: View {
                         performSearch(query: searchText)
                     }
                 }
-                
-                // 検索結果
+
+                // 検索結果表示
                 if isSearching {
                     ProgressView("検索中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,11 +81,11 @@ struct EventSearchView: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 50))
                             .foregroundColor(selectedThemeColor.opacity(0.5))
-                        
+
                         Text("検索結果が見つかりません")
                             .font(.headline)
                             .foregroundColor(.gray)
-                        
+
                         Text("別のキーワードで検索してみてください")
                             .font(.caption)
                             .foregroundColor(.gray)
@@ -97,11 +96,11 @@ struct EventSearchView: View {
                         Image(systemName: "calendar.badge.plus")
                             .font(.system(size: 50))
                             .foregroundColor(selectedThemeColor.opacity(0.5))
-                        
+
                         Text("予定を検索")
                             .font(.headline)
                             .foregroundColor(.gray)
-                        
+
                         Text("検索バーにキーワードを入力してください")
                             .font(.caption)
                             .foregroundColor(.gray)
@@ -116,7 +115,7 @@ struct EventSearchView: View {
                     }
                     .listStyle(PlainListStyle())
                 }
-                
+
                 Spacer()
             }
             .navigationTitle("予定検索")
@@ -129,7 +128,7 @@ struct EventSearchView: View {
                     }
                     .foregroundColor(selectedThemeColor)
                 }
-                
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         showSimilarWordsSettings = true
@@ -152,207 +151,104 @@ struct EventSearchView: View {
             )
         }
     }
-    
+
+    // 検索実行: 遅延して実行。SearchMode が .synonym の場合のみ類義語リストを展開し、
+    // それ以外のモードではクエリそのものだけをキーワードとして厳密に判定します。
     private func performSearch(query: String) {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
             searchResults = []
             isSearching = false
             return
         }
-        
+
         isSearching = true
-        
-        // 検索を少し遅延させて、ユーザーが入力中に頻繁に検索が実行されるのを防ぐ
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let lowercaseQuery = query.lowercased()
-            let searchKeywords = similarWordsManager.findSimilarWords(for: lowercaseQuery).map { $0.lowercased() }
-            
-            var allEvents: [Event] = []
-            
-            // 全ての予定を検索
-            for (_, eventList) in events {
-                for event in eventList {
-                    let eventTitle = event.title.lowercased()
-                    
-                    if matchesEventTitle(eventTitle, keywords: searchKeywords) {
-                        allEvents.append(event)
+            let lowercaseQuery = trimmed.lowercased()
+
+            // キーワード決定
+            let searchKeywords: [String]
+            if selectedSearchMode == .synonym {
+                // 類義語モード：SimilarWordsManager が属するグループの単語一覧をキーワードとして使用
+                searchKeywords = similarWordsManager.findSimilarWords(for: lowercaseQuery).map { $0.lowercased() }
+            } else {
+                // それ以外はクエリのみ
+                searchKeywords = [lowercaseQuery]
+            }
+
+            var matched: [Event] = []
+            for (_, list) in events {
+                for ev in list {
+                    let title = ev.title.lowercased()
+                    if matchesEventTitle(title, keywords: searchKeywords) {
+                        matched.append(ev)
                     }
                 }
             }
-            
-            // 類似単語でグループ化
-            searchResults = groupSimilarEvents(allEvents, query: lowercaseQuery)
+
+            // SimilarWordsManager のグループに基づき簡潔にグループ化
+            searchResults = groupSimilarEvents(matched, query: lowercaseQuery)
             isSearching = false
         }
     }
-    
+
+    // 指定したモードに基づいて厳密に判定する
     private func matchesEventTitle(_ title: String, keywords: [String]) -> Bool {
         for keyword in keywords {
-            let isMatch: Bool
             switch selectedSearchMode {
             case .prefix:
-                isMatch = title.hasPrefix(keyword)
+                if title.hasPrefix(keyword) { return true }
             case .suffix:
-                isMatch = title.hasSuffix(keyword)
+                if title.hasSuffix(keyword) { return true }
             case .exact:
-                isMatch = title == keyword
+                if title == keyword { return true }
             case .contains:
-                isMatch = title.contains(keyword)
-            }
-            
-            if isMatch {
-                return true
+                if title.contains(keyword) { return true }
+            case .synonym:
+                // 類義語モードでは、類義語リスト中の語がタイトルに含まれているかどうかで判定
+                // （厳密な判定：含まれている場合にマッチ）
+                if title.contains(keyword) { return true }
             }
         }
         return false
     }
-    
+
+    // 類義語グループに基づいてグループ化する。各イベントのタイトルがグループ内の語を含むかで判定。
     private func groupSimilarEvents(_ events: [Event], query: String) -> [EventGroup] {
         var groups: [String: [Event]] = [:]
-        
-        for event in events {
-            let title = event.title.lowercased()
-            
-            // カスタム類似単語を使用してグループ化
-            let groupName = findBestGroupMatch(title: title, query: query)
-            
-            if groups[groupName] == nil {
-                groups[groupName] = []
+        let lowerQuery = query.lowercased()
+
+        for ev in events {
+            let title = ev.title.lowercased()
+            var assigned: String? = nil
+
+            for g in similarWordsManager.similarWordsGroups {
+                for word in g.words {
+                    let w = word.lowercased()
+                    if title.contains(w) {
+                        assigned = g.name
+                        break
+                    }
+                }
+                if assigned != nil { break }
             }
-            groups[groupName]?.append(event)
+
+            let key = assigned ?? lowerQuery
+            groups[key, default: []].append(ev)
         }
-        
-        // グループをソートして返す
-        return groups.map { key, events in
-            EventGroup(
-                id: key,
-                keyword: key,
-                events: events.sorted { $0.startTime < $1.startTime }
-            )
+
+        return groups.map { k, v in
+            EventGroup(id: k, keyword: k, events: v.sorted { $0.startTime < $1.startTime })
         }.sorted { $0.keyword < $1.keyword }
     }
-    
-    private func findBestGroupMatch(title: String, query: String) -> String {
-        let lowercaseQuery = query.lowercased()
-        
-        // まず、カスタム類似単語グループをチェック
-        for group in similarWordsManager.similarWordsGroups {
-            // タイトルにグループ内の単語が含まれているかチェック
-            for word in group.words {
-                if title.contains(word.lowercased()) {
-                    return group.name
-                }
-            }
-            
-            // クエリがグループ内の単語と一致するかチェック
-            for word in group.words {
-                if word.lowercased() == lowercaseQuery {
-                    return group.name
-                }
-            }
-        }
-        
-        // カスタムグループにマッチしない場合は、従来のロジックを使用
-        let keywords = extractKeywords(from: title)
-        let bestMatch = findBestMatch(keywords: keywords, query: lowercaseQuery)
-        
-        // クエリ自体がキーワードに含まれている場合は、そのキーワードを返す
-        if keywords.contains(lowercaseQuery) {
-            return lowercaseQuery
-        }
-        
-        return bestMatch
-    }
-    
-    private func extractKeywords(from title: String) -> [String] {
-        // 日本語の助詞や記号を除去してキーワードを抽出
-        let cleanedTitle = title
-            .replacingOccurrences(of: "の", with: " ")
-            .replacingOccurrences(of: "を", with: " ")
-            .replacingOccurrences(of: "に", with: " ")
-            .replacingOccurrences(of: "で", with: " ")
-            .replacingOccurrences(of: "と", with: " ")
-            .replacingOccurrences(of: "は", with: " ")
-            .replacingOccurrences(of: "が", with: " ")
-            .replacingOccurrences(of: "、", with: " ")
-            .replacingOccurrences(of: "。", with: " ")
-            .replacingOccurrences(of: "・", with: " ")
-            .replacingOccurrences(of: " ", with: " ")
-        
-        return cleanedTitle.components(separatedBy: " ")
-            .filter { !$0.isEmpty && $0.count > 1 }
-    }
-    
-    private func findBestMatch(keywords: [String], query: String) -> String {
-        // 完全一致を優先
-        for keyword in keywords {
-            if keyword == query {
-                return keyword
-            }
-        }
-        
-        // 部分一致を探す
-        for keyword in keywords {
-            if keyword.contains(query) || query.contains(keyword) {
-                return keyword
-            }
-        }
-        
-        // 類似度が高いキーワードを探す
-        var bestMatch = keywords.first ?? query
-        var bestScore = calculateSimilarity(query, keywords.first ?? "")
-        
-        for keyword in keywords {
-            let score = calculateSimilarity(query, keyword)
-            if score > bestScore {
-                bestScore = score
-                bestMatch = keyword
-            }
-        }
-        
-        return bestMatch
-    }
-    
-    private func calculateSimilarity(_ str1: String, _ str2: String) -> Double {
-        let longer = str1.count > str2.count ? str1 : str2
-        let shorter = str1.count > str2.count ? str2 : str1
-        
-        if longer.isEmpty {
-            return 1.0
-        }
-        
-        let editDistance = levenshteinDistance(shorter, longer)
-        return (Double(longer.count) - Double(editDistance)) / Double(longer.count)
-    }
-    
-    private func levenshteinDistance(_ str1: String, _ str2: String) -> Int {
-        let a = Array(str1)
-        let b = Array(str2)
-        
-        var matrix = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
-        
-        for i in 0...a.count {
-            matrix[i][0] = i
-        }
-        
-        for j in 0...b.count {
-            matrix[0][j] = j
-        }
-        
-        for i in 1...a.count {
-            for j in 1...b.count {
-                if a[i-1] == b[j-1] {
-                    matrix[i][j] = matrix[i-1][j-1]
-                } else {
-                    matrix[i][j] = min(matrix[i-1][j], matrix[i][j-1], matrix[i-1][j-1]) + 1
-                }
-            }
-        }
-        
-        return matrix[a.count][b.count]
+
+    // 互換用：単語からグループ名を取得（必要に応じて SimilarWordsManager を直接呼べます）
+    private func getGroupName(for word: String) -> String {
+        return similarWordsManager.getGroupName(for: word)
     }
 }
 
+// 表示用補助型・ビューは元のまま
 struct EventGroup: Identifiable {
     let id: String
     let keyword: String
@@ -362,57 +258,43 @@ struct EventGroup: Identifiable {
 struct EventGroupSection: View {
     let group: EventGroup
     let selectedThemeColor: Color
-    
+
     @State private var isExpanded = true
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // グループヘッダー
             Button(action: {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    isExpanded.toggle()
-                }
+                withAnimation(.easeInOut(duration: 0.3)) { isExpanded.toggle() }
             }) {
                 HStack {
                     Text(group.keyword)
                         .font(.headline)
                         .fontWeight(.bold)
                         .foregroundColor(selectedThemeColor)
-                    
+
                     Spacer()
-                    
+
                     Text("\(group.events.count)件")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(selectedThemeColor.opacity(0.1))
-                        )
-                    
+                        .background(RoundedRectangle(cornerRadius: 8).fill(selectedThemeColor.opacity(0.1)))
+
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.caption)
                         .foregroundColor(selectedThemeColor)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white)
-                        .shadow(color: selectedThemeColor.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white).shadow(color: selectedThemeColor.opacity(0.1), radius: 2, x: 0, y: 1))
             }
             .buttonStyle(PlainButtonStyle())
-            
-            // イベントリスト
+
             if isExpanded {
                 VStack(spacing: 8) {
                     ForEach(group.events) { event in
-                        EventSearchResultRow(
-                            event: event,
-                            selectedThemeColor: selectedThemeColor
-                        )
+                        EventSearchResultRow(event: event, selectedThemeColor: selectedThemeColor)
                     }
                 }
                 .padding(.top, 8)
@@ -426,12 +308,11 @@ struct EventGroupSection: View {
 struct EventSearchResultRow: View {
     let event: Event
     let selectedThemeColor: Color
-    
+
     private var calendar: Calendar { Calendar.current }
-    
+
     var body: some View {
         HStack(spacing: 15) {
-            // 日付表示
             VStack(spacing: 4) {
                 Text(dayString(event.startTime))
                     .font(.caption)
@@ -439,35 +320,31 @@ struct EventSearchResultRow: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(selectedThemeColor)
-                    )
-                
+                    .background(RoundedRectangle(cornerRadius: 6).fill(selectedThemeColor))
+
                 Text(monthString(event.startTime))
                     .font(.caption2)
                     .foregroundColor(.gray)
             }
             .frame(width: 50)
-            
-            // 予定情報
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(event.title)
                     .font(.headline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(2)
-                
+
                 HStack {
                     Image(systemName: "clock")
                         .font(.caption)
                         .foregroundColor(selectedThemeColor)
-                    
+
                     Text("\(timeString(event.startTime)) - \(timeString(event.endTime))")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                
+
                 if calendar.isDateInToday(event.startTime) {
                     HStack {
                         Image(systemName: "star.fill")
@@ -490,32 +367,28 @@ struct EventSearchResultRow: View {
                     }
                 }
             }
-            
+
             Spacer()
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white)
-                .shadow(color: selectedThemeColor.opacity(0.1), radius: 2, x: 0, y: 1)
-        )
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white).shadow(color: selectedThemeColor.opacity(0.1), radius: 2, x: 0, y: 1))
     }
-    
+
     private func dayString(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
         formatter.dateFormat = "d"
         return formatter.string(from: date)
     }
-    
+
     private func monthString(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
         formatter.dateFormat = "M月"
         return formatter.string(from: date)
     }
-    
+
     private func timeString(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
