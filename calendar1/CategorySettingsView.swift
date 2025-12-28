@@ -35,15 +35,36 @@ struct CategorySettingsView: View {
                     List {
                         ForEach(categories.indices, id: \.self) { idx in
                             HStack {
+                                // Category name on the left
                                 Text(categories[idx].name)
+                                    .lineLimit(1)
+
                                 Spacer()
+
+                                // Toggle on the right to make on/off immediately visible
+                                // Show a visible label so the toggle is easier to spot in the UI
+                                Toggle("表示", isOn: Binding(get: { categories[idx].isEnabled }, set: { newVal in
+                                    // Create updated category and propagate change via manager so observers are notified
+                                    var updated = categories[idx]
+                                    updated.isEnabled = newVal
+                                    // Update shared manager (this will save and notify observers)
+                                    CategoryManager.shared.updateCategory(updated)
+                                    // Keep local binding array in sync
+                                    categories[idx] = updated
+                                }))
+                                .toggleStyle(SwitchToggleStyle(tint: selectedThemeColor))
+                                .padding(.trailing, 8)
+
+                                // Edit button
                                 Button(action: { editingIndex = idx }) {
                                     Image(systemName: "pencil")
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .padding(.trailing, 8)
+
+                                // Delete button
                                 Button(action: {
-                                    let removed = categories.remove(at: idx)
+                                    categories.remove(at: idx)
                                     save()
                                 }) {
                                     Image(systemName: "trash")

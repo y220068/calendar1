@@ -208,8 +208,9 @@ struct ContentView: View {
                                     let isSelected = calendar.isDate(date, inSameDayAs: selectedDate ?? Date.distantPast)
                                     let isToday = calendar.isDateInToday(date)
                                     let dateKey = dateKey(date)
-                                    let dayEvents = events[dateKey] ?? []
-                                    
+                                    // Filter events according to enabled categories
+                                    let dayEvents = visibleEvents(for: dateKey)
+
                                     RoundedRectangle(cornerRadius: 14)
                                         .fill(
                                             isSelected ? selectedThemeColor.opacity(0.4) :
@@ -289,7 +290,7 @@ struct ContentView: View {
                 )
                 .padding(.horizontal)
                 
-                // 選択した日付の予定表示
+                // 選択した日付の予定表示（カテゴリのオン/オフに応じてフィルタ）
                 if let selectedDate = selectedDate {
                     let key = dateKey(selectedDate)
                     VStack(alignment: .leading, spacing: 15) {
@@ -303,9 +304,11 @@ struct ContentView: View {
                         }
                         .padding(.horizontal)
                         
-                        if let eventList = events[key], !eventList.isEmpty {
-                            let sortedEvents = eventList.sorted { $0.startTime < $1.startTime }
-                            ForEach(sortedEvents.indices, id: \ .self) { idx in
+                        // Get visible events after applying category filter
+                        let visible = visibleEvents(for: key)
+                        if !visible.isEmpty {
+                            let sortedEvents = visible.sorted { $0.startTime < $1.startTime }
+                            ForEach(sortedEvents.indices, id: \.self) { idx in
                                 let event = sortedEvents[idx]
                                 HStack {
                                     Text("\(timeString(event.startTime))-\(timeString(event.endTime))")
@@ -320,9 +323,16 @@ struct ContentView: View {
                                                 .shadow(color: selectedThemeColor.opacity(0.4), radius: 2, x: 0, y: 1)
                                         )
                                     
-                                    Text("・\(event.title)")
-                                        .fontWeight(.medium)
-                                        .foregroundColor(.primary)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("・\(event.title)")
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.primary)
+                                        if let cname = categoryManager.name(for: event.categoryID) {
+                                            Text(cname)
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
                                     
                                     Spacer()
                                 }
@@ -334,8 +344,8 @@ struct ContentView: View {
                                         .shadow(color: selectedThemeColor.opacity(0.2), radius: 4, x: 0, y: 2)
                                 )
                                 .onTapGesture {
-                                    // 元のリストでのインデックスを取得
-                                    if let originalIndex = eventList.firstIndex(where: { $0.id == event.id }) {
+                                    // Find index in original storage so edits/deletes operate correctly
+                                    if let originalList = events[key], let originalIndex = originalList.firstIndex(where: { $0.id == event.id }) {
                                         eventToEdit = (key, originalIndex)
                                         showActionSheet = true
                                     }
@@ -604,6 +614,23 @@ struct ContentView: View {
                     eventToDelete = nil
                 }
             )
+        }
+    }
+    
+    // Return events for a given dateKey after applying category on/off filters.
+    // If an event has no category (nil), it is shown regardless of category toggles.
+    private func visibleEvents(for dateKey: String) -> [Event] {
+        guard let list = events[dateKey] else { return [] }
+        // Use observed categoryManager so view updates when categories change
+        let enabledIDs = Set(categoryManager.categories.filter { $0.isEnabled }.map { $0.id })
+        // If there are no categories defined at all, show all events (initial/default behavior)
+        if categoryManager.categories.isEmpty { return list }
+        // If categories exist but none are enabled, treat that as "hide all categorized events" -> show only uncategorized
+        if enabledIDs.isEmpty { return list.filter { $0.categoryID == nil } }
+        // Otherwise, include events whose categoryID is nil (uncategorized) or whose category is enabled
+        return list.filter { ev in
+            guard let cid = ev.categoryID else { return true }
+            return enabledIDs.contains(cid)
         }
     }
     
