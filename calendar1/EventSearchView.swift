@@ -7,47 +7,152 @@
 
 import SwiftUI
 
+// ========================================
 // 検索画面：キーワード入力、検索モード選択、結果表示
-// 変更点：レーベンシュタイン距離による類似度を廃止し、
-// SimilarWordsManager の類義語グループに基づく簡潔な判定に置き換えています。
+// ========================================
+// - 変更点：レーベンシュタイン距離による類似度を廃止し、
+//   SimilarWordsManager の類義語グループに基づく簡潔な判定に置き換えています。
+
+// ========================================
+// enum SearchMode
+// ========================================
+// - 検索方法の種類を定義する列挙型。
+// - CaseIterable: 全ケースをループ可能に（PickerStyle などで使用）。
 
 enum SearchMode: String, CaseIterable {
+    // ========================================
+    // prefix: 前方一致
+    // ========================================
+    // - 予定のタイトルが入力キーワードで始まる場合にマッチ。
+    // - 例: "会議" で「会議開始」「会議予定」がマッチ。
     case prefix = "前方一致"
+    
+    // ========================================
+    // suffix: 後方一致
+    // ========================================
+    // - タイトルが入力キーワードで終わる場合にマッチ。
+    // - 例: "会議" で「午前の会議」「定例会議」がマッチ。
     case suffix = "後方一致"
+    
+    // ========================================
+    // exact: 完全一致
+    // ========================================
+    // - タイトルが入力キーワードと完全に一致する場合のみマッチ。
+    // - 例: "会議" で「会議」のみマッチ。「会議室予約」はマッチしない。
     case exact = "完全一致"
+    
+    // ========================================
+    // contains: 部分一致
+    // ========================================
+    // - タイトルに入力キーワードが含まれる場合にマッチ。
+    // - 例: "会議" で「午前の会議開始」「会議室確保」がマッチ。
     case contains = "部分一致"
+    
+    // ========================================
+    // synonym: 類義語一致
+    // ========================================
+    // - SimilarWordsManager で定義された類義語グループをマッチ。
+    // - 例: "会議" の類義語「ミーティング」「打ち合わせ」もマッチ。
     case synonym = "類義語一致"
 }
 
+// ========================================
+// EventSearchView 構造体
+// ========================================
+// - 検索機能を提供するビュー。
+// - 検索バー、モード選択、結果表示からなる。
+
 struct EventSearchView: View {
+    // ========================================
+    // @Binding var events
+    // ========================================
+    // - 親ビュー（ContentView）の全イベント辞書への参照。
+    // - ここでは読み取り専用で使用（編集しない）。
     @Binding var events: [String: [Event]]
+    
+    // ========================================
+    // @Binding var selectedThemeColor
+    // ========================================
+    // - テーマカラー。
     @Binding var selectedThemeColor: Color
+    
+    // ========================================
+    // @Environment(\.presentationMode)
+    // ========================================
+    // - このビューを閉じるための環境値。
     @Environment(\.presentationMode) var presentationMode
+    
+    // ========================================
+    // @StateObject private var similarWordsManager
+    // ========================================
+    // - SimilarWordsManager シングルトン。
+    // - @StateObject で生存期間を管理。
+    // - 類義語グループの読み込み・検索に使用。
     @StateObject private var similarWordsManager = SimilarWordsManager.shared
 
+    // ========================================
+    // @State private var searchText
+    // ========================================
+    // - 検索バーの入力テキスト。
     @State private var searchText = ""
+    
+    // ========================================
+    // @State private var searchResults
+    // ========================================
+    // - 検索結果として表示する EventGroup の配列。
     @State private var searchResults: [EventGroup] = []
+    
+    // ========================================
+    // @State private var isSearching
+    // ========================================
+    // - 検索処理中フラグ。true なら ProgressView を表示。
     @State private var isSearching = false
+    
+    // ========================================
+    // @State private var showSimilarWordsSettings
+    // ========================================
+    // - 類義語設定シート表示フラグ。
     @State private var showSimilarWordsSettings = false
+    
+    // ========================================
+    // @State private var selectedSearchMode
+    // ========================================
+    // - 現在選択されている検索モード（デフォルト: contains 部分一致）。
     @State private var selectedSearchMode: SearchMode = .contains
 
+    // ========================================
+    // private var calendar
+    // ========================================
+    // - 日付操作用カレンダー。
     private var calendar: Calendar { Calendar.current }
 
     var body: some View {
         NavigationView {
             VStack {
+                // ========================================
                 // 検索バー
+                // ========================================
+                // - HStack で虫眼鏡アイコン、入力フィールド、クリアボタンを配置。
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(selectedThemeColor)
                         .font(.title2)
 
+                    // ========================================
+                    // TextField
+                    // ========================================
+                    // - ユーザーが検索キーワードを入力。
+                    // - onChange で入力変更時に検索実行。
                     TextField("予定を検索...", text: $searchText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .onChange(of: searchText) { newValue in
                             performSearch(query: newValue)
                         }
 
+                    // ========================================
+                    // クリアボタン
+                    // ========================================
+                    // - searchText が空でない時だけ表示。
                     if !searchText.isEmpty {
                         Button("クリア") {
                             searchText = ""
@@ -58,7 +163,11 @@ struct EventSearchView: View {
                 }
                 .padding()
 
-                // 検索モード選択
+                // ========================================
+                // 検索モード選択（SegmentedPickerStyle）
+                // ========================================
+                // - ユーザーが検索方法を選択。
+                // - 選択モード変更時は既存検索を再実行。
                 Picker("検索モード", selection: $selectedSearchMode) {
                     ForEach(SearchMode.allCases, id: \.self) { mode in
                         Text(mode.rawValue).tag(mode)
@@ -72,11 +181,20 @@ struct EventSearchView: View {
                     }
                 }
 
-                // 検索結果表示
+                // ========================================
+                // 検索結果表示エリア
+                // ========================================
+                // - 3つの状態を分岐表示：
+                //   1. 検索中 → ProgressView
+                //   2. 検索結果なし → 空状態UI
+                //   3. 結果あり → リスト表示
                 if isSearching {
                     ProgressView("検索中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if searchResults.isEmpty && !searchText.isEmpty {
+                    // ========================================
+                    // 検索結果なし UI
+                    // ========================================
                     VStack(spacing: 20) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 50))
@@ -92,6 +210,9 @@ struct EventSearchView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if searchResults.isEmpty {
+                    // ========================================
+                    // 初期状態 UI（検索未実行）
+                    // ========================================
                     VStack(spacing: 20) {
                         Image(systemName: "calendar.badge.plus")
                             .font(.system(size: 50))
